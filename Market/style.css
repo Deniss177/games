@@ -1,0 +1,9 @@
+* { box-sizing: border-box; }
+:root { --ink:#0f172a; --muted:#64748b; --bg:#f7f7fb; --card:#ffffff; }
+html,body{ height:100%; margin:0; font-family:system-ui,Segoe UI,Roboto,Arial; color:var(--ink); background:var(--bg); }
+header,footer{ max-width:900px; margin:12px auto; padding:8px 12px; background:var(--card);
+  border-radius:12px; box-shadow:0 8px 20px rgba(0,0,0,.06);}
+h1{ margin:0 0 4px; font-size:22px; } p{ margin:0; color:var(--muted); }
+#game{ display:block; margin:10px auto 16px; background:#e5e7eb; border:2px solid #cbd5e1; border-radius:12px; }
+button{ padding:10px 14px; border-radius:10px; border:1px solid #cbd5e1; background:#fff; cursor:pointer; font-weight:600; }
+button:hover{ background:#f8fafc; }

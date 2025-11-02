@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Magnuss and Patrik Race</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { --canvas-aspect: 5/3; }
+    body{
+      font-family: Inter, system-ui, -apple-system, Arial, sans-serif;
+      min-height:100vh; margin:0; background:#1f2937;
+      display:flex; align-items:center; justify-content:center; overflow:hidden;
+    }
+    #stage { position:relative; width:95vw; max-width:95vh; aspect-ratio: var(--canvas-aspect); }
+    canvas{
+      width:100%; height:100%; background:#e5e7eb;
+      border:4px solid #f9fafb; border-radius:14px;
+      box-shadow:0 10px 20px rgba(0,0,0,.5);
+      touch-action:none;
+    }
+    #overlay{
+      position:absolute; inset:0;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:18px; text-align:center;
+      background:rgba(17,24,39,0.85); color:#fff; padding:24px;
+      border-radius:14px;
+    }
+    .title { font-size: clamp(22px, 3vw, 36px); font-weight:800; letter-spacing:.5px; }
+    .subtitle { opacity:.9; }
+    .btn {
+      background:#22c55e; color:#0b1626; font-weight:800;
+      border:none; border-radius:12px; padding:12px 20px; cursor:pointer;
+      box-shadow:0 6px 0 #16a34a; transition:transform .08s;
+    }
+    .btn:hover { filter:brightness(.98); }
+    .btn:active { transform:translateY(2px); box-shadow:0 0 0 #16a34a; }
+    #gameInfo{
+      position:absolute; top:10px; left:50%; transform:translateX(-50%);
+      color:#fff; background:rgba(0,0,0,.4); border-radius:10px; padding:6px 10px;
+      font-size:12px; pointer-events:none;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div id="gameInfo"><span class="text-red-300">Car 1: ↑ ↓ ← →</span> | <span class="text-blue-300">Car 2: WASD</span> | <span class="text-yellow-300">AI: oranžs/zaļgani zils</span></div>
+    <!-- Lielāka iekšējā izšķirtspēja 600x360 (5:3) -->
+    <canvas id="roadNetworkCanvas" width="600" height="360"></canvas>
+
+    <div id="overlay">
+      <div class="title">Magnuss and Patrik Race</div>
+      <div class="subtitle">Brauc pa ielām, izvairies no AI auto</div>
+      <button id="startBtn" class="btn">Start</button>
+    </div>
+  </div>
+
+  <script>
+    // ===== Kanva & stāvokļi =====
+    const canvas = document.getElementById('roadNetworkCanvas');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+
+    let CW = canvas.width, CH = canvas.height;
+    let animationId = null;
+
+    // Spēles stāvokļi: 'menu' | 'playing' | 'over'
+    let gameState = 'menu';
+
+    // ===== Karte / konstantes =====
+    const GRID_SIZE = 7;               // vairāk kvartālu (lielāks tīkls)
+    const ROAD_WIDTH_RATIO = 0.45;     // platāki ceļi (vairāk braucamā laukuma)
+    const BLOCK_CORNER_RADIUS = 15;
+
+    let grid_blocks = [];  // zaļie kvartāli (neizbraucami)
+    let buildings = [];    // mājas (baltie kvadrāti) kā atsevišķi šķēršļi
+
+    const CAR_WIDTH_RATIO = 0.025;
+    const CAR_HEIGHT_RATIO = 0.04;
+    const WHEEL_COLOR = '#333';
+
+    // Fizika
+    const BRAKING = 0.21, FRICTION = 0.05, TURN_RATE = 0.04, MAX_SPEED = 4.2, ACCELERATION = 0.21;
+
+    // AI
+    const AI_SPEED = 1.75, WAYPOINT_TOLERANCE = 10;
+
+    // Mašīnas
+    const car1 = { x:0,y:0,angle:0,speed:0,color:'rgb(255,107,107)',isAI:false };
+    const car2 = { x:0,y:0,angle:0,speed:0,color:'rgb(74,144,226)',isAI:false };
+    const aiCar1 = { x:0,y:0,angle:0,speed:0,color:'rgb(249,179,78)',isAI:true,targetX:0,targetY:0 };
+    const aiCar2 = { x:0,y:0,angle:0,speed:0,color:'rgb(52,187,164)',isAI:true,targetX:0,targetY:0 };
+    const AICARS = [aiCar1, aiCar2];
+
+    // Ievade
+    const keys = {
+      car1_up:false,car1_down:false,car1_left:false,car1_right:false,
+      car2_up:false,car2_down:false,car2_left:false,car2_right:false,
+    };
+
+    const COLORS = { ROAD:'#4b5563', BLOCK:'#6b9080', BUILDING:'#fefae0', ROOFS:'#ba181b', STROKE:'#1f2937' };
+
+    // ===== Palīgi =====
+    function drawRoundedRect(ctx, x, y, w, h, r){
+      if (w < 2*r) r = w/2; if (h < 2*r) r = h/2;
+      ctx.beginPath();
+      ctx.moveTo(x+r, y);
+      ctx.arcTo(x+w, y, x+w, y+h, r);
+      ctx.arcTo(x+w, y+h, x, y+h, r);
+      ctx.arcTo(x, y+h, x, y, r);
+      ctx.arcTo(x, y, x+w, y, r);
+      ctx.closePath();
+    }
+    function darkenColor(rgb, p){
+      const [r0,g0,b0] = rgb.match(/\d+/g).map(Number);
+      const r = Math.max(0, r0 - r0*p/100), g = Math.max(0, g0 - g0*p/100), b = Math.max(0, b0 - b0*p/100);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    // ===== Karte =====
+    function drawNetwork(width, height){
+      grid_blocks = [];
+      buildings = [];
+
+      const roadWidthX = width  / (GRID_SIZE + GRID_SIZE * (1/ROAD_WIDTH_RATIO - 1));
+      const blockWidth = roadWidthX / ROAD_WIDTH_RATIO - roadWidthX;
+      const roadWidthY = height / (GRID_SIZE + GRID_SIZE * (1/ROAD_WIDTH_RATIO - 1));
+      const blockHeight = roadWidthY / ROAD_WIDTH_RATIO - roadWidthY;
+      const roadSize = Math.min(roadWidthX, roadWidthY);
+
+      ctx.fillStyle = COLORS.ROAD;
+      ctx.fillRect(0,0,width,height);
+
+      ctx.strokeStyle = COLORS.STROKE; ctx.lineWidth = 1;
+
+      for (let i=0;i<GRID_SIZE;i++){
+        for (let j=0;j<GRID_SIZE;j++){
+          const blockX = i*(blockWidth+roadSize) + roadSize;
+          const blockY = j*(blockHeight+roadSize) + roadSize;
+
+          grid_blocks.push({ x:blockX, y:blockY, w:blockWidth, h:blockHeight });
+
+          // kvartāls
+          ctx.fillStyle = COLORS.BLOCK;
+          drawRoundedRect(ctx, blockX, blockY, blockWidth, blockHeight, BLOCK_CORNER_RADIUS);
+          ctx.fill(); ctx.stroke();
+
+          // 4 mājas iekšpusē (katrā stūrī)
+          const buildingMargin = roadSize / 3;
+          const s = ((blockWidth - 3*buildingMargin)/2)/2;
+          const x1 = blockX + buildingMargin + s/2;
+          const x2 = blockX + blockWidth - 1.5*s - buildingMargin;
+          const y1 = blockY + buildingMargin + s/2;
+          const y2 = blockY + blockHeight - 1.5*s - buildingMargin;
+
+          for (const {x,y} of [{x:x1,y:y1},{x:x2,y:y1},{x:x1,y:y2},{x:x2,y:y2}]){
+            // sienas
+            ctx.fillStyle = COLORS.BUILDING; ctx.fillRect(x,y,s,s); ctx.strokeRect(x,y,s,s);
+            // reģistrē kā šķērsli
+            buildings.push({ x, y, w:s, h:s });
+            // jumts
+            ctx.fillStyle = COLORS.ROOFS;
+            ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+s/2,y - s/3); ctx.lineTo(x+s,y); ctx.closePath();
+            ctx.fill(); ctx.stroke();
+          }
+        }
+      }
+    }
+
+    // ===== Sākuma pozīcijas =====
+    function resetCarPositions(){
+      const roadWidthX = CW / (GRID_SIZE + GRID_SIZE * (1/ROAD_WIDTH_RATIO - 1));
+      const blockWidth = roadWidthX / ROAD_WIDTH_RATIO - roadWidthX;
+      const roadWidthY = CH / (GRID_SIZE + GRID_SIZE * (1/ROAD_WIDTH_RATIO - 1));
+      const blockHeight = roadWidthY / ROAD_WIDTH_RATIO - roadWidthY;
+      const roadSize = Math.min(roadWidthX, roadWidthY);
+      const roadCenter = roadSize / 2;
+
+      const getInter = (k,l)=>({ x: k*(blockWidth+roadSize)+roadCenter, y: l*(blockHeight+roadSize)+roadCenter });
+
+      // players
+      car1.x = CW - roadCenter; car1.y = CH - roadCenter; car1.angle = Math.PI; car1.speed = 0;
+      car2.x = roadCenter;      car2.y = roadCenter;      car2.angle = 0;       car2.speed = 0;
+
+      // AI
+      const p1 = getInter(1,1);
+      aiCar1.x=p1.x; aiCar1.y=p1.y; aiCar1.angle=Math.PI/2; aiCar1.speed=AI_SPEED; aiCar1.targetX=p1.x; aiCar1.targetY=p1.y;
+      const p2 = getInter(5,5);
+      aiCar2.x=p2.x; aiCar2.y=p2.y; aiCar2.angle=0;        aiCar2.speed=AI_SPEED; aiCar2.targetX=p2.x; aiCar2.targetY=p2.y;
+
+      updateNextWaypoint(aiCar1, blockWidth, blockHeight, roadSize);
+      updateNextWaypoint(aiCar2, blockWidth, blockHeight, roadSize);
+    }
+
+    function updateNextWaypoint(car, blockWidth, blockHeight, roadSize){
+      const stepX = blockWidth + roadSize, stepY = blockHeight + roadSize;
+      const a = car.angle % (2*Math.PI);
+      if (Math.abs(a-0)<0.1) car.targetY -= stepY;
+      else if (Math.abs(a-Math.PI/2)<0.1) car.targetX += stepX;
+      else if (Math.abs(a-Math.PI)<0.1) car.targetY += stepY;
+      else if (Math.abs(a-3*Math.PI/2)<0.1) car.targetX -= stepX;
+    }
+
+    // ===== Sadursmes =====
+    function isCollidingSolid(x, y, carW, carH){
+      const halfW = carW/2, halfH = carH/2;
+      const L = x - halfW, R = x + halfW, T = y - halfH, B = y + halfH;
+      const TOL = 0.5;
+
+      const hitRectList = (list) => {
+        for (const o of list){
+          const l = o.x, r = o.x + o.w, t = o.y, b = o.y + o.h;
+          if (R > l + TOL && L < r - TOL && B > t + TOL && T < b - TOL) return true;
+        }
+        return false;
+      };
+
+      // Zaļie kvartāli VAI baltās mājas
+      return hitRectList(grid_blocks) || hitRectList(buildings);
+    }
+
+    function isCollidingCar(p1, car2){
+      const w = CW*CAR_WIDTH_RATIO;
+      return Math.hypot(p1.x-car2.x, p1.y-car2.y) < w*1.25;
+    }
+    function playersHitAI(){
+      for (const ai of AICARS){
+        if (isCollidingCar(car1, ai) || isCollidingCar(car2, ai)) return true;
+      }
+      return false;
+    }
+
+    // ===== Atjaunināšana =====
+    // — Separēta kustība pa X/Y un bloķēšana pret kvartāliem + mājām —
+    function updateCar(car, controls){
+      if (gameState !== 'playing') return;
+
+      const up=keys[controls.up], down=keys[controls.down], left=keys[controls.left], right=keys[controls.right];
+      const carW=CW*CAR_WIDTH_RATIO, carH=CH*CAR_HEIGHT_RATIO;
+
+      if (up) car.speed = Math.min(car.speed+ACCELERATION, MAX_SPEED);
+      else if (down) car.speed = Math.max(car.speed-BRAKING, -MAX_SPEED/2);
+      else { if (car.speed>0) car.speed=Math.max(0,car.speed-FRICTION); else if (car.speed<0) car.speed=Math.min(0,car.speed+FRICTION); }
+
+      if (Math.abs(car.speed)>0.1){
+        if (left)  car.angle -= TURN_RATE*(car.speed>0?1:-1);
+        if (right) car.angle += TURN_RATE*(car.speed>0?1:-1);
+      } else {
+        if (left)  car.angle -= TURN_RATE*0.5;
+        if (right) car.angle += TURN_RATE*0.5;
+      }
+
+      const dx=Math.sin(car.angle)*car.speed, dy=-Math.cos(car.angle)*car.speed;
+
+      // X ass
+      let nx = car.x + dx, ny = car.y;
+      const hw=carW/2, hh=carH/2;
+      if (nx<hw) nx=hw; if (nx> CW-hw) nx=CW-hw;
+      if (isCollidingSolid(nx, ny, carW, carH)) nx = car.x;
+
+      // Y ass
+      let nyTest = car.y + dy;
+      if (nyTest<hh) nyTest=hh; if (nyTest> CH-hh) nyTest=CH-hh;
+      if (isCollidingSolid(nx, nyTest, carW, carH)) nyTest = car.y;
+
+      car.x = nx; car.y = nyTest;
+    }
+
+    function updateAICar(car){
+      if (gameState !== 'playing') return;
+
+      const roadWidthX = CW / (GRID_SIZE + GRID_SIZE * (1/ROAD_WIDTH_RATIO - 1));
+      const blockWidth = roadWidthX / ROAD_WIDTH_RATIO - roadWidthX;
+      const roadWidthY = CH / (GRID_SIZE + GRID_SIZE * (1/ROAD_WIDTH_RATIO - 1));
+      const blockHeight = roadWidthY / ROAD_WIDTH_RATIO - roadWidthY;
+      const roadSize = Math.min(roadWidthX, roadWidthY);
+
+      const stepX = blockWidth + roadSize, stepY = blockHeight + roadSize;
+
+      const dx = car.targetX - car.x, dy = car.targetY - car.y, dist = Math.hypot(dx,dy);
+      if (dist < WAYPOINT_TOLERANCE){
+        car.x = car.targetX; car.y = car.targetY;
+        const a = car.angle % (2*Math.PI);
+        let options = [0, Math.PI/2, Math.PI, 3*Math.PI/2];
+        const opp = (a + Math.PI) % (2*Math.PI);
+        options = options.filter(v => Math.abs(v-opp) > 0.1);
+
+        let tries=0, ok=false, newA=a;
+        while(!ok && tries<6){
+          tries++;
+          newA = options[Math.floor(Math.random()*options.length)];
+          car.angle = newA;
+          let tx=car.x, ty=car.y;
+          if (Math.abs(newA-0)<0.1) ty -= stepY;
+          else if (Math.abs(newA-Math.PI/2)<0.1) tx += stepX;
+          else if (Math.abs(newA-Math.PI)<0.1) ty += stepY;
+          else if (Math.abs(newA-3*Math.PI/2)<0.1) tx -= stepX;
+
+          const carW=CW*CAR_WIDTH_RATIO, carH=CH*CAR_HEIGHT_RATIO;
+          if (tx>carW/2 && tx<CW-carW/2 && ty>carH/2 && ty<CH-carH/2){ car.targetX=tx; car.targetY=ty; ok=true; }
+          else options = options.filter(v => Math.abs(v-newA) > 0.1);
+          if (options.length===0){ car.angle=opp; updateNextWaypoint(car, blockWidth, blockHeight, roadSize); ok=true; }
+        }
+      }
+
+      car.speed = AI_SPEED;
+      let mx=0,my=0; const a = car.angle % (2*Math.PI);
+      if (Math.abs(a-0)<0.1) my = -car.speed;
+      else if (Math.abs(a-Math.PI/2)<0.1) mx =  car.speed;
+      else if (Math.abs(a-Math.PI)<0.1) my =  car.speed;
+      else if (Math.abs(a-3*Math.PI/2)<0.1) mx = -car.speed;
+
+      const carW=CW*CAR_WIDTH_RATIO, carH=CH*CAR_HEIGHT_RATIO;
+
+      // X
+      let nx = car.x + mx;
+      if (!isCollidingSolid(nx, car.y, carW, carH) && nx > carW/2 && nx < CW - carW/2) car.x = nx;
+
+      // Y
+      let ny = car.y + my;
+      if (!isCollidingSolid(car.x, ny, carW, carH) && ny > carH/2 && ny < CH - carH/2) car.y = ny;
+    }
+
+    // ===== Zīmēšana =====
+    function drawCar(car){
+      const w = CW*CAR_WIDTH_RATIO, h = CH*CAR_HEIGHT_RATIO, hw=w/2, hh=h/2;
+      ctx.save(); ctx.translate(car.x,car.y); ctx.rotate(car.angle);
+
+      const grad = ctx.createLinearGradient(-hw,-hh,hw,hh);
+      grad.addColorStop(0,car.color); grad.addColorStop(1,darkenColor(car.color,20));
+      ctx.fillStyle = grad; ctx.shadowColor='rgba(0,0,0,0.6)'; ctx.shadowBlur=5;
+      ctx.fillRect(-hw,-hh,w,h); ctx.shadowBlur=0;
+
+      const CWIN=w*0.6, CHIN=h*0.6, XW=-CWIN/2, YW=-CHIN*0.4;
+      ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(XW,YW,CWIN,CHIN);
+      ctx.fillStyle='rgba(200,230,255,0.8)'; const T=1;
+      ctx.fillRect(XW+T,YW+T,CWIN-2*T,CHIN*0.4-T);
+      ctx.fillRect(XW+T,YW+CHIN*0.6+T,CWIN-2*T,CHIN*0.4-T);
+
+      const r=w/8, off=h*0.35, offX=w*0.4;
+      const wheel=(x,y)=>{ ctx.fillStyle=WHEEL_COLOR; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+                           ctx.fillStyle='#666'; ctx.beginPath(); ctx.arc(x,y,r*0.5,0,Math.PI*2); ctx.fill(); };
+      wheel(-offX,-off); wheel(offX,-off); wheel(-offX,off); wheel(offX,off);
+
+      ctx.restore();
+    }
+
+    // ===== Spēles cilpa =====
+    function loop(){
+      drawNetwork(CW, CH);
+
+      if (gameState === 'playing'){
+        updateCar(car1, {up:'car1_up',down:'car1_down',left:'car1_left',right:'car1_right'});
+        updateCar(car2, {up:'car2_up',down:'car2_down',left:'car2_left',right:'car2_right'});
+        AICARS.forEach(updateAICar);
+
+        [car1,car2,...AICARS].forEach(drawCar);
+
+        if (playersHitAI()) endGame();
+      }
+      animationId = requestAnimationFrame(loop);
+    }
+
+    // ===== Ievade =====
+    const KEY_TO_STATE = { ArrowUp:'car1_up', ArrowDown:'car1_down', ArrowLeft:'car1_left', ArrowRight:'car1_right' };
+    const CODE_TO_STATE = { KeyW:'car2_up', KeyS:'car2_down', KeyA:'car2_left', KeyD:'car2_right' };
+
+    function handleKeyDown(e){
+      if (gameState !== 'playing') return;
+      if (KEY_TO_STATE[e.key]) { e.preventDefault(); keys[KEY_TO_STATE[e.key]] = true; return; }
+      if (CODE_TO_STATE[e.code]) { keys[CODE_TO_STATE[e.code]] = true; }
+    }
+    function handleKeyUp(e){
+      if (KEY_TO_STATE[e.key]) { keys[KEY_TO_STATE[e.key]] = false; return; }
+      if (CODE_TO_STATE[e.code]) { keys[CODE_TO_STATE[e.code]] = false; }
+    }
+
+    document.addEventListener('keydown', handleKeyDown, {passive:false});
+    document.addEventListener('keyup', handleKeyUp, {passive:false});
+
+    // ===== Start / Game Over =====
+    function showMenu(){
+      gameState = 'menu';
+      overlay.innerHTML = `
+        <div class="title">Magnuss and Patrik Race</div>
+        <div class="subtitle">Brauc pa ielām un izvairies no AI mašīnām</div>
+        <button id="startBtn" class="btn">Start</button>
+      `;
+      overlay.style.display = 'flex';
+      overlay.querySelector('#startBtn').addEventListener('click', startGame);
+    }
+    function startGame(){
+      Object.keys(keys).forEach(k => keys[k] = false);
+      resetCarPositions();
+      gameState = 'playing';
+      overlay.style.display = 'none';
+    }
+    function endGame(){
+      gameState = 'over';
+      overlay.innerHTML = `
+        <div class="title">Game Ower</div>
+        <div class="subtitle">Ai, AI tevi noķēra! Mēģini vēlreiz.</div>
+        <button id="againBtn" class="btn">Start again</button>
+      `;
+      overlay.style.display = 'flex';
+      overlay.querySelector('#againBtn').addEventListener('click', showMenu);
+    }
+
+    // ===== Inits =====
+    function init(){
+      drawNetwork(CW, CH);
+      showMenu();
+      loop();
+    }
+    init();
+  </script>
+</body>
+</html>

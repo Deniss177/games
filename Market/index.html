@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="lv">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>City Drive — 2D auto spēle</title>
+
+  <!-- svarīgi: fails tieši 'styles.css' tajā pašā mapē -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>City Drive</h1>
+    <p>Šautriņas = stūrē/paātrini, Space = bremze. Neiebrauc ēkās!</p>
+  </header>
+
+  <canvas id="game" aria-label="Pilsētas karte ar ielām"></canvas>
+
+  <footer>
+    <button id="btnReset">Reset</button>
+  </footer>
+
+  <!-- svarīgi: 'defer', un fails tieši 'game.js' tajā pašā mapē -->
+  <script src="game.js" defer></script>
+</body>
+</html>
