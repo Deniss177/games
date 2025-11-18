@@ -1,0 +1,991 @@
+
+<html lang="lv">
+<head>
+    <meta charset="UTF-8">
+    <!-- SVARĪGS TAGS MOBILAJĀM IERĪCĒM: Nodrošina mērogošanu uz jebkura ekrāna -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
+    <title>3D Ielas, Sporta Auto, Mājas un Gājēji Spēle</title>
+    <!-- Ielādējam Three.js bibliotēku 3D grafikai -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Ielādējam Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Pielāgoti stili un fons */
+        body {
+            background-color: #0d1a26; /* Tumši zils fons */
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            font-family: 'Inter', sans-serif;
+            /* Neļauj horizontalitātei ritināties, kas bieži notiek uz mobilajām ierīcēm */
+            overflow-x: hidden; 
+        }
+
+        /* Galvenais spēles konteiners */
+        #game-container {
+            background-color: #ffffff;
+            border: 8px solid #3b82f6;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            width: 100%;
+            max-width: 650px; /* Nedaudz lielāks maksimālais platums */
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* Three.js renderēšanas elements */
+        #game-canvas {
+            display: block;
+            width: 100%;
+            aspect-ratio: 16 / 10; /* Nodrošina labu attiecību, kas ir responsīva */
+        }
+
+        /* Kontroles pogas mobilajām ierīcēm */
+        #mobile-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 15px;
+            background-color: #f9fafb;
+        }
+        
+        /* Virzienu panelis D-Pad stilā */
+        #direction-pad {
+            display: grid;
+            grid-template-areas: ". up ." "left down right";
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .mobile-btn {
+            padding: 15px;
+            border-radius: 10px;
+            font-weight: bold;
+            background-color: #1d4ed8;
+            color: white;
+            box-shadow: 0 4px #1e40af;
+            transition: all 0.1s ease;
+            min-width: 80px; /* Nodrošina labu skāriena mērķi */
+            text-align: center;
+        }
+        
+        .mobile-btn:active {
+            box-shadow: 0 0 #1e40af;
+            transform: translateY(4px);
+        }
+
+        /* Pārējie UI elementi */
+        #info-panel {
+            padding: 15px;
+            background-color: #e5e7eb;
+            border-bottom: 4px solid #3b82f6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            color: #1f2937;
+            flex-wrap: wrap; /* Lai uz mobilā tālruņa teksts neizietu ārpus rāmja */
+        }
+        
+        #controls-panel {
+            padding: 15px;
+            background-color: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            border-top: 4px solid #3b82f6;
+        }
+
+        /* Palielināts pogu izmērs labākai redzamībai un lietojamībai */
+        .game-button {
+            padding: 12px 20px; 
+            font-size: 1.1rem; 
+            border-radius: 10px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px #1e40af;
+            cursor: pointer;
+            border: none;
+            background-color: #3b82f6;
+            color: white;
+            flex-grow: 1; /* Vienāda izmēra pogas */
+        }
+
+        .game-button:hover {
+            background-color: #2563eb;
+            box-shadow: 0 2px #1e40af;
+            transform: translateY(2px);
+        }
+        
+        /* Virziena pogu izvietojums režģī */
+        .up { grid-area: up; }
+        .down { grid-area: down; }
+        .left { grid-area: left; }
+        .right { grid-area: right; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="info-panel">
+            <span id="mode-display">Režīms: Gājējs</span>
+            <span id="score-display">Punkti: 0</span>
+        </div>
+        <!-- Šeit tiks ievietots Three.js renderētājs -->
+        <div id="game-canvas"></div> 
+        
+        <!-- Kontroles panelis ar labi pamanāmām pogām -->
+        <div id="controls-panel">
+            <button id="toggle-mode-btn" class="game-button bg-green-500 hover:bg-green-600 shadow-green-700">Pārslēgt uz Auto</button>
+            <button id="reset-btn" class="game-button bg-red-500 hover:bg-red-600 shadow-red-700">Sākt No Jauna</button>
+        </div>
+
+        <!-- Mobilās kontroles (Redzamas uz Android, izmantojot skārienjutību) -->
+        <div id="mobile-controls">
+            <div id="direction-pad">
+                <button class="mobile-btn up" data-key="w">UZ AUGŠU</button>
+                <button class="mobile-btn left" data-key="a">PA KREISI</button>
+                <button class="mobile-btn down" data-key="s">UZ LEJU</button>
+                <button class="mobile-btn right" data-key="d">PA LABI</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ziņojumu kaste (Spēle Beigusies) -->
+    <div id="message-box">
+        <div id="message-content">
+            <h2 id="message-title" class="text-3xl font-bold mb-4 text-red-600">Spēle Beigusies!</h2>
+            <p id="message-text" class="mb-6 text-xl text-gray-800">Jūs notrieca automašīna. Jūsu punkti: 0</p>
+            <button id="close-message-btn" class="game-button bg-green-500 hover:bg-green-600 shadow-green-700">Aizvērt un Sākt No Jauna</button>
+        </div>
+    </div>
+
+    <script>
+        // Globālie mainīgie un Three.js pamati
+        let scene, camera, renderer, clock;
+        let playerMesh, playerCollider; // Spēlētāja 3D objekts un sadursmes laukums (THREE.Group vai THREE.Mesh)
+        let cars = []; // Masīvs 3D auto objektiem (THREE.Group)
+        let pedestrians = []; // Masīvs citiem 3D gājēju objektiem (THREE.Group)
+        let score = 0;
+        let isRunning = false;
+        let keys = {}; // Tastatūras nospiedumu stāvoklis
+        let mode = 'pedestrian'; // 'pedestrian' (gājējs) vai 'car' (auto)
+
+        // UI Elementi
+        const container = document.getElementById('game-canvas');
+        const modeDisplay = document.getElementById('mode-display');
+        const scoreDisplay = document.getElementById('score-display');
+        const toggleModeBtn = document.getElementById('toggle-mode-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const messageBox = document.getElementById('message-box');
+        const messageTitle = document.getElementById('message-title');
+        const messageText = document.getElementById('message-text');
+        const closeMessageBtn = document.getElementById('close-message-btn');
+
+        // === Konfigurācija (3D Koordinātēs) ===
+        const PLAYER_SPEED_PEDESTRIAN = 5.0; // Vienības sekundē (Units per second)
+        const PLAYER_SPEED_CAR = 15.0; // Sporta auto ir ātrāks
+        const ROAD_WIDTH = 15; // Ielas platums (X ass)
+        const LANE_WIDTH = ROAD_WIDTH / 4; // 4 joslas
+        const GRASS_WIDTH = 5; // Zālājs katrā pusē
+        const CAR_LENGTH = 1.5; // Z ass bāzes garums
+        const CAR_WIDTH = 0.8; // X ass bāzes platums
+        const CAR_SPEED_MIN = 4.0; // Vienības sekundē
+        const CAR_SPEED_MAX = 8.0; // Vienības sekundē
+        const CAR_SPAWN_Z_DISTANCE = 25; // Attālums starp auto ģenerēšanas zonām
+        const CAR_SPAWN_OFFSET = 50; // Attālums no spēlētāja (Z ass)
+        const PEDESTRIAN_SPEED = 1.5; // Citi gājēji pārvietojas lēnāk
+        const PEDESTRIAN_SPAWN_OFFSET = 30; // Cik tālu no spēlētāja ģenerēt
+        
+        // Riteņu konfigurācija
+        const WHEEL_RADIUS = 0.15;
+        const WHEEL_THICKNESS = 0.1;
+        
+        let lastCarZ = 0; // Pēdējā auto ģenerēšanas pozīcija pa Z
+        let lastPedestrianZ = 0; // Pēdējā gājēja ģenerēšanas pozīcija pa Z
+
+        // === Three.js Iestatīšana ===
+        function initThreeJS() {
+            // Skatuves (Scene) izveide
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // Zilas debesis
+
+            // Kamera (PerspectiveCamera)
+            const aspectRatio = container.clientWidth / container.clientHeight;
+            camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
+            
+            // Renderētājs
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            // Gaismas
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Mīksta apkārtējā gaisma
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5); // Virziena gaisma
+            scene.add(directionalLight);
+
+            // Laika mērītājs (delta time)
+            clock = new THREE.Clock();
+            
+            // Iestatīt kameras sākotnējo pozīciju (tiks atjaunināta spēles ciklā)
+            updateCameraPosition();
+        }
+
+        // Atjauno kameras pozīciju, lai tā sekotu spēlētājam
+        function updateCameraPosition() {
+            if (playerMesh) {
+                // Kamera atrodas aiz spēlētāja un nedaudz virs
+                camera.position.set(
+                    playerMesh.position.x, 
+                    4, // Augstums
+                    playerMesh.position.z + 8 // Attālums aiz spēlētāja (Positive Z)
+                );
+                // Kamera skatās uz spēlētāja pozīciju
+                camera.lookAt(playerMesh.position.x, playerMesh.position.y + 1, playerMesh.position.z);
+            }
+        }
+        
+        // === 3D Objekti Veidošana ===
+
+        // Palīgfunkcija, lai izveidotu atsevišķu riteni
+        function createWheelMesh() {
+            // Ritenis ir cilindrs, kas pagriezts par 90 grādiem ap X asi
+            const geometry = new THREE.CylinderGeometry(WHEEL_RADIUS, WHEEL_RADIUS, WHEEL_THICKNESS, 12);
+            const material = new THREE.MeshLambertMaterial({ color: 0x333333 }); // Tumši pelēks
+            const wheel = new THREE.Mesh(geometry, material);
+            
+            // Pagriež riteni, lai tas būtu vertikāli (rotācija ap X asi par 90 grādiem)
+            wheel.rotation.x = Math.PI / 2;
+            
+            return wheel;
+        }
+        
+        // Sporta auto modelis (Spēlētājam)
+        function createSportCarMesh(colorHex, scale = 1.0) {
+            const group = new THREE.Group();
+            const mainColor = new THREE.Color(colorHex);
+            const windowColor = new THREE.Color(0x333333); // Tumšāki logi
+
+            // Auto izmēri
+            const chassisWidth = CAR_WIDTH * 1.5 * scale;
+            const chassisHeight = 0.2 * scale; // Plakanāks
+            const chassisLength = CAR_LENGTH * 2.5 * scale; // Garāks
+            
+            // Riteņu pozīcijas atstatums no centra
+            const wheelXOffset = chassisWidth / 2 + WHEEL_THICKNESS / 2;
+            const wheelZOffset = chassisLength / 2 - WHEEL_RADIUS * 1.5; 
+
+            // 1. Šasija (Main body - platāks un plakanāks)
+            const chassisGeometry = new THREE.BoxGeometry(chassisWidth, chassisHeight, chassisLength);
+            const chassisMaterial = new THREE.MeshLambertMaterial({ color: mainColor });
+            const chassis = new THREE.Mesh(chassisGeometry, chassisMaterial);
+            chassis.position.y = chassisHeight / 2;
+            group.add(chassis);
+
+            // 2. Kabīne (Plakana un šaura)
+            const cabWidth = CAR_WIDTH * 0.9 * scale;
+            const cabHeight = 0.4 * scale;
+            const cabLength = CAR_LENGTH * 0.9 * scale;
+
+            const cabGeometry = new THREE.BoxGeometry(cabWidth, cabHeight, cabLength);
+            const cabMaterial = new THREE.MeshLambertMaterial({ color: windowColor }); 
+            const cab = new THREE.Mesh(cabGeometry, cabMaterial);
+            
+            cab.position.y = chassisHeight + cabHeight / 2; 
+            cab.position.z = -chassisLength * 0.05; 
+            group.add(cab);
+            
+            // 3. Spoilers (Aizmugurē)
+            const spoilerBarGeom = new THREE.BoxGeometry(chassisWidth * 0.8, 0.05 * scale, 0.05 * scale);
+            const spoilerBarMat = new THREE.MeshLambertMaterial({ color: 0xAAAAAA });
+            const spoilerBar = new THREE.Mesh(spoilerBarGeom, spoilerBarMat);
+            spoilerBar.position.set(0, chassisHeight + cabHeight + 0.3 * scale, chassisLength / 2 - 0.1 * scale);
+            group.add(spoilerBar);
+
+            const spoilerSupportGeom = new THREE.BoxGeometry(0.05 * scale, 0.3 * scale, 0.05 * scale);
+            const spoilerSupportMat = new THREE.MeshLambertMaterial({ color: 0xAAAAAA });
+
+            const supportL = new THREE.Mesh(spoilerSupportGeom, spoilerSupportMat);
+            supportL.position.set(-chassisWidth * 0.4, chassisHeight + 0.15 * scale, chassisLength / 2 - 0.1 * scale);
+            group.add(supportL);
+
+            const supportR = new THREE.Mesh(spoilerSupportGeom, spoilerSupportMat);
+            supportR.position.set(chassisWidth * 0.4, chassisHeight + 0.15 * scale, chassisLength / 2 - 0.1 * scale);
+            group.add(supportR);
+
+
+            // 4. Riteņi 
+            
+            // Priekšējais kreisais
+            const wheelFL = createWheelMesh();
+            wheelFL.position.set(-wheelXOffset, WHEEL_RADIUS, -wheelZOffset);
+            group.add(wheelFL);
+            
+            // Priekšējais labais
+            const wheelFR = createWheelMesh();
+            wheelFR.position.set(wheelXOffset, WHEEL_RADIUS, -wheelZOffset);
+            group.add(wheelFR);
+            
+            // Aizmugurējais kreisais
+            const wheelRL = createWheelMesh();
+            wheelRL.position.set(-wheelXOffset, WHEEL_RADIUS, wheelZOffset);
+            group.add(wheelRL);
+
+            // Aizmugurējais labais
+            const wheelRR = createWheelMesh();
+            wheelRR.position.set(wheelXOffset, WHEEL_RADIUS, wheelZOffset);
+            group.add(wheelRR);
+
+            // Group centrēšana
+            group.position.y = WHEEL_RADIUS; 
+            
+            return group;
+        }
+
+        // Parastais auto modelis (satiksmei)
+        function createTrafficCarMesh(colorHex, scale = 1.0) {
+            const group = new THREE.Group();
+            const mainColor = new THREE.Color(colorHex);
+            const cabColor = 0x000000; // Melna kabīne (logi)
+
+            // Auto izmēri
+            const chassisWidth = CAR_WIDTH * scale;
+            const chassisHeight = 0.3 * scale; 
+            const chassisLength = CAR_LENGTH * 1.5 * scale;
+            
+            // Riteņu pozīcijas atstatums no centra
+            const wheelXOffset = chassisWidth / 2 + WHEEL_THICKNESS / 2;
+            const wheelZOffset = chassisLength / 2 - WHEEL_RADIUS * 1.5; 
+
+            // 1. Šasija (Main body)
+            const chassisGeometry = new THREE.BoxGeometry(chassisWidth, chassisHeight, chassisLength);
+            const chassisMaterial = new THREE.MeshLambertMaterial({ color: mainColor });
+            const chassis = new THREE.Mesh(chassisGeometry, chassisMaterial);
+            chassis.position.y = chassisHeight / 2;
+            group.add(chassis);
+
+            // 2. Kabīne (Cabin/Window area)
+            const cabWidth = CAR_WIDTH * 0.7 * scale;
+            const cabHeight = 0.5 * scale;
+            const cabLength = CAR_LENGTH * 0.7 * scale;
+
+            const cabGeometry = new THREE.BoxGeometry(cabWidth, cabHeight, cabLength);
+            const cabMaterial = new THREE.MeshLambertMaterial({ color: cabColor }); 
+            const cab = new THREE.Mesh(cabGeometry, cabMaterial);
+            
+            cab.position.y = chassisHeight + cabHeight / 2; 
+            cab.position.z = -chassisLength * 0.1; 
+            group.add(cab);
+            
+            // 3. Riteņi
+            
+            // Priekšējais kreisais
+            const wheelFL = createWheelMesh();
+            wheelFL.position.set(-wheelXOffset, WHEEL_RADIUS, -wheelZOffset);
+            group.add(wheelFL);
+            
+            // Priekšējais labais
+            const wheelFR = createWheelMesh();
+            wheelFR.position.set(wheelXOffset, WHEEL_RADIUS, -wheelZOffset);
+            group.add(wheelFR);
+            
+            // Aizmugurējais kreisais
+            const wheelRL = createWheelMesh();
+            wheelRL.position.set(-wheelXOffset, WHEEL_RADIUS, wheelZOffset);
+            group.add(wheelRL);
+
+            // Aizmugurējais labais
+            const wheelRR = createWheelMesh();
+            wheelRR.position.set(wheelXOffset, WHEEL_RADIUS, wheelZOffset);
+            group.add(wheelRR);
+
+            // Group centrēšana
+            group.position.y = WHEEL_RADIUS; 
+            
+            return group;
+        }
+
+        // --- Gājējs (NPC) modelis un Spēlētāja gājēja modelis ---
+        function createPedestrianMesh(colorHex) {
+            const group = new THREE.Group();
+            const color = new THREE.Color(colorHex);
+
+            // Galvenie izmēri
+            const BODY_HEIGHT = 1.0;
+            const BODY_WIDTH = 0.4;
+            const BODY_DEPTH = 0.3;
+            const HEAD_RADIUS = 0.2;
+
+            // 1. Ķermenis (Body)
+            const bodyGeom = new THREE.BoxGeometry(BODY_WIDTH, BODY_HEIGHT, BODY_DEPTH);
+            const bodyMat = new THREE.MeshLambertMaterial({ color: color });
+            const body = new THREE.Mesh(bodyGeom, bodyMat);
+            body.position.y = BODY_HEIGHT / 2 + 0.05; 
+            group.add(body);
+
+            // 2. Galva (Head)
+            const headGeom = new THREE.SphereGeometry(HEAD_RADIUS, 12, 12);
+            const headMat = new THREE.MeshLambertMaterial({ color: 0xffe0bd }); // Ādas tonis
+            const head = new THREE.Mesh(headGeom, headMat);
+            head.position.y = BODY_HEIGHT + HEAD_RADIUS + 0.05; 
+            group.add(head);
+            
+            // 3. Roka (vienkāršs cilindrs)
+            const armGeom = new THREE.CylinderGeometry(0.05, 0.05, 0.7, 8);
+            const armMat = new THREE.MeshLambertMaterial({ color: color });
+            
+            const armR = new THREE.Mesh(armGeom, armMat);
+            armR.rotation.x = Math.PI / 2; 
+            armR.position.set(BODY_WIDTH / 2 + 0.05, BODY_HEIGHT * 0.75, 0);
+            group.add(armR);
+
+            // 4. Kājas (vienkārši kubi)
+            const legGeom = new THREE.BoxGeometry(BODY_WIDTH * 0.4, 0.5, BODY_DEPTH * 0.8);
+            const legMat = new THREE.MeshLambertMaterial({ color: 0x000080 }); // Tumši zils
+            
+            const legL = new THREE.Mesh(legGeom, legMat);
+            legL.position.set(-BODY_WIDTH / 4, 0.25, 0); 
+            group.add(legL);
+
+            const legR = new THREE.Mesh(legGeom, legMat);
+            legR.position.set(BODY_WIDTH / 4, 0.25, 0); 
+            group.add(legR);
+
+            // Lai gājējs neiet cauri zemei
+            group.position.y = 0; 
+
+            return group;
+        }
+
+
+        // --- Mājas modelis ---
+        function createHouseMesh() {
+            const group = new THREE.Group();
+            
+            const wallColor = 0xf5deb3; // Koksnes krāsa (bēšs)
+            const roofColor = 0x8b0000; // Tumši sarkans jumts
+            const windowColor = 0x87CEEB; // Zili logi
+
+            const HOUSE_WIDTH = 4;
+            const HOUSE_HEIGHT = 3;
+            const HOUSE_DEPTH = 5;
+
+            // 1. Sienas (Galvenais bloks)
+            const bodyGeom = new THREE.BoxGeometry(HOUSE_WIDTH, HOUSE_HEIGHT, HOUSE_DEPTH);
+            const bodyMat = new THREE.MeshLambertMaterial({ color: wallColor });
+            const body = new THREE.Mesh(bodyGeom, bodyMat);
+            body.position.y = HOUSE_HEIGHT / 2; // Paceļ uz augšu
+            group.add(body);
+
+            // 2. Jumts (Prizma / Tetraedrs, kas ir izstiepts)
+            const roofGeom = new THREE.ConeGeometry(HOUSE_WIDTH * 0.7, HOUSE_WIDTH * 0.5, 4); 
+            const roofMat = new THREE.MeshLambertMaterial({ color: roofColor });
+            const roof = new THREE.Mesh(roofGeom, roofMat);
+            
+            // Pagriež, lai virsotnes būtu virs sienām
+            roof.rotation.y = Math.PI / 4; 
+            roof.scale.z = HOUSE_DEPTH / (HOUSE_WIDTH * 0.7); 
+            
+            roof.position.y = HOUSE_HEIGHT + (HOUSE_WIDTH * 0.5 * 0.5); // Paceļ virs sienām
+            group.add(roof);
+
+            // 3. Durvis
+            const doorGeom = new THREE.BoxGeometry(0.8, 1.5, 0.1);
+            const doorMat = new THREE.MeshLambertMaterial({ color: 0x654321 }); // Brūnas durvis
+            const door = new THREE.Mesh(doorGeom, doorMat);
+            door.position.set(0, 1.5 / 2, HOUSE_DEPTH / 2 + 0.05); // Uz priekšējās sienas
+            group.add(door);
+            
+            // 4. Logs (Sānos)
+            const windowGeom = new THREE.BoxGeometry(1.2, 1.2, 0.1);
+            const windowMat = new THREE.MeshLambertMaterial({ color: windowColor });
+            const window = new THREE.Mesh(windowGeom, windowMat);
+            window.position.set(HOUSE_WIDTH / 2 + 0.05, HOUSE_HEIGHT / 2, 0); // Uz labās sienas
+            window.rotation.y = Math.PI / 2; // Pagriež, lai logs būtu X-Z plaknē
+            group.add(window);
+            
+            return group;
+        }
+
+        // Izveido spēlētāja objektu (Gājējs vai Detalizēts Auto)
+        function createPlayerMesh(isCar) {
+            
+            if (isCar) {
+                // Auto režīms: sarkans sporta auto
+                playerMesh = createSportCarMesh(0xFF0000, 1.2); 
+                playerMesh.position.y = 0; 
+            } else {
+                // Gājēja režīms: sarkans gājēja modelis (izceļas no NPC)
+                playerMesh = createPedestrianMesh(0xFF0000); 
+                playerMesh.position.y = 0;
+            }
+
+            playerMesh.position.z = 0; // Sākas ceļa sākumā 
+            playerMesh.position.x = 0; // Sākas centrā
+            scene.add(playerMesh);
+            
+            // Sadursmes laukums
+            playerCollider = new THREE.Box3().setFromObject(playerMesh);
+        }
+
+        // Izveido ceļu, zāli un mājas
+        function createWorld() {
+            // Zālājs (abās pusēs)
+            const grassGeometry = new THREE.PlaneGeometry(ROAD_WIDTH + 2 * GRASS_WIDTH, 1000); 
+            const grassMaterial = new THREE.MeshLambertMaterial({ color: 0x4CAF50 });
+            const grass = new THREE.Mesh(grassGeometry, grassMaterial);
+            grass.rotation.x = -Math.PI / 2; 
+            grass.position.y = 0;
+            grass.position.z = -500; 
+            scene.add(grass);
+            
+            // Ceļš (Asfalts)
+            const roadGeometry = new THREE.PlaneGeometry(ROAD_WIDTH, 1000);
+            const roadMaterial = new THREE.MeshLambertMaterial({ color: 0x4b5563 });
+            const road = new THREE.Mesh(roadGeometry, roadMaterial);
+            road.rotation.x = -Math.PI / 2;
+            road.position.y = 0.01; 
+            road.position.z = -500; 
+            scene.add(road);
+            
+            // Joslu līnijas 
+            const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const lineGeometry = new THREE.BoxGeometry(0.1, 0.01, 1);
+            
+            // Zīmē pārtrauktas līnijas gar ceļu
+            for (let i = -500; i < 0; i += 2) { 
+                const line = new THREE.Mesh(lineGeometry, lineMaterial);
+                line.position.set(0, 0.05, i); 
+                scene.add(line);
+            }
+            
+            // --- Mājas ģenerēšana ---
+            const HOUSE_START_Z = -20; // Sākam ģenerēt nedaudz pirms spēlētāja
+            const HOUSE_SPACING_Z = 20; // Attālums starp mājām
+            const HOUSE_COUNT = 5; // Cik mājas izveidot
+            
+            for (let i = 0; i < HOUSE_COUNT; i++) {
+                const house = createHouseMesh();
+                const zPos = HOUSE_START_Z - i * HOUSE_SPACING_Z;
+                
+                // Mājas pozīcija (uz zāles pa kreisi)
+                const xPos = -ROAD_WIDTH/2 - 2 - (i % 2 === 0 ? 0 : 2); 
+                
+                house.position.set(xPos, 0, zPos);
+                scene.add(house);
+            }
+        }
+        
+        // Izveido satiksmes auto
+        function createTrafficCar(lane, colorHex, spawnZ) {
+            // Satiksmes auto izmanto parasto modeli
+            const car = createTrafficCarMesh(colorHex, 1.0); 
+
+            // Nosaka X pozīciju pēc joslas (1-4)
+            const laneX = (lane - 2.5) * LANE_WIDTH; 
+
+            car.position.set(laneX, 0, spawnZ); 
+            car.userData.speed = CAR_SPEED_MIN + Math.random() * (CAR_SPEED_MAX - CAR_SPEED_MIN);
+            
+            // Joslas 1-2 (kreisā puse): Brauc pretī spēlētājam (Pozitīvs Z virziens)
+            // Joslas 3-4 (labā puse): Brauc spēlētāja virzienā (Negatīvs Z virziens)
+            car.userData.direction = lane <= 2 ? 1 : -1; 
+            
+            // Pagriež auto, ja tas brauc pretī (Pozitīvs Z virziens)
+            if (car.userData.direction === 1) {
+                car.rotation.y = Math.PI; // 180 grādi
+            }
+
+            scene.add(car);
+            cars.push(car);
+        }
+        
+        // Izveido NPC gājēju
+        function createPedestrian(spawnZ) {
+            const colors = [0x1f2937, 0x991b1b, 0x1d4ed8, 0xfacc15]; // Pelēks, tumši sarkans, zils, dzeltens
+            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            const pedestrian = createPedestrianMesh(randomColor);
+            
+            // Izvieto uz vienas no zālāja joslām
+            const side = Math.random() < 0.5 ? -1 : 1; // Kreisi vai pa labi
+            
+            const xPos = side * (ROAD_WIDTH / 2 + GRASS_WIDTH * (0.3 + Math.random() * 0.4)); // Zālāja vidusdaļā
+            
+            pedestrian.position.set(xPos, 0, spawnZ);
+            
+            // Gājēji kustas uz priekšu (negatīvs Z virziens)
+            pedestrian.userData.speed = PEDESTRIAN_SPEED * (0.8 + Math.random() * 0.4); 
+            // Griež, lai skatās uz priekšu (negatīvs Z)
+            pedestrian.rotation.y = Math.PI; 
+            
+            scene.add(pedestrian);
+            pedestrians.push(pedestrian);
+        }
+
+
+        // === Spēles Loģika ===
+
+        function initGame() {
+            // Tīra skatuvi, ja tā jau ir iestatīta
+            if (scene) {
+                scene.children.forEach(child => {
+                    // Mēģinām atbrīvot Three.js ģeometrijas un materiālus
+                    if (child.isMesh || child.isGroup) {
+                        child.traverse(obj => {
+                            if (obj.isMesh) {
+                                obj.geometry.dispose();
+                                if (obj.material.isMaterial) {
+                                    obj.material.dispose();
+                                } else {
+                                    // Pārbauda, vai materiāli ir masīvs
+                                    for (const material of obj.material) material.dispose();
+                                }
+                            }
+                        });
+                    }
+                    if (child !== camera) scene.remove(child); 
+                });
+                if (renderer && renderer.domElement && container.contains(renderer.domElement)) {
+                    container.removeChild(renderer.domElement);
+                }
+                cars = [];
+                pedestrians = [];
+            }
+
+            initThreeJS();
+            createWorld(); // Izveido ceļu, zāli un mājas
+            
+            // Iestata sākuma pozīciju atbilstoši režīmam
+            if (mode === 'pedestrian') {
+                createPlayerMesh(false);
+                // Gājējs sāk uz zāles ceļa malā (X ass negatīvā pusē)
+                playerMesh.position.set(-ROAD_WIDTH/2 - GRASS_WIDTH/2, 0, 0); 
+            } else {
+                createPlayerMesh(true);
+                // Auto sāk ceļa centrā
+                playerMesh.position.set(0, 0, 0); 
+            }
+            
+            score = 0;
+            isRunning = true;
+            lastCarZ = 0; // Atiestata auto ģenerēšanas pozīciju
+            lastPedestrianZ = 0; // Atiestata gājēju ģenerēšanas pozīciju
+            scoreDisplay.textContent = `Punkti: 0`;
+            modeDisplay.textContent = `Režīms: ${mode === 'pedestrian' ? 'Gājējs' : 'Auto'}`;
+            toggleModeBtn.textContent = mode === 'pedestrian' ? 'Pārslēgt uz Auto' : 'Pārslēgt uz Gājēju';
+            messageBox.style.display = 'none';
+
+            // Pārliecina, ka animācijas cikls ir sākts
+            if (window.animationFrameId) cancelAnimationFrame(window.animationFrameId);
+            gameLoop();
+        }
+        
+        // Pārslēdz gājēja/auto režīmu
+        function toggleMode() {
+            if (!playerMesh) return; 
+
+            let currentX = playerMesh.position.x;
+            const currentZ = playerMesh.position.z;
+            const oldPlayerMesh = playerMesh;
+
+            // Noņem veco spēlētāja objektu no skatuves
+            scene.remove(oldPlayerMesh);
+
+            mode = mode === 'pedestrian' ? 'car' : 'pedestrian';
+            
+            // Pārliecināmies, ka auto sāk uz ceļa, ja gājējs bija uz zāles
+            if (mode === 'car') {
+                const roadBoundary = ROAD_WIDTH / 2;
+                if (Math.abs(oldPlayerMesh.position.x) > roadBoundary) {
+                     currentX = 0; // Pārceļ auto uz ceļa centru, ja tas bija uz zāles
+                }
+            }
+
+            // Izveido jaunu spēlētāja objektu
+            createPlayerMesh(mode === 'car');
+            
+            // Iestata jauno pozīciju
+            const newY = mode === 'pedestrian' ? 0 : 0;
+            playerMesh.position.set(currentX, newY, currentZ);
+            
+            // Paziņo spēlētājam
+            modeDisplay.textContent = `Režīms: ${mode === 'pedestrian' ? 'Gājējs' : 'Auto'}`;
+            toggleModeBtn.textContent = mode === 'pedestrian' ? 'Pārslēgt uz Auto' : 'Pārslēgt uz Gājēju';
+        }
+
+
+        function spawnCar(playerZ) {
+            const spawnPointZ = playerZ - CAR_SPAWN_OFFSET; 
+
+            if (spawnPointZ < lastCarZ - CAR_SPAWN_Z_DISTANCE) {
+                lastCarZ = spawnPointZ; 
+                
+                const lane = Math.floor(Math.random() * 4) + 1;
+                
+                let colorHex;
+                // Joslas 1-2 (Pretī) ir sarkanas, 3-4 (Vienā virzienā) ir zaļas
+                colorHex = lane <= 2 ? 0xef4444 : 0x22c55e; 
+
+                createTrafficCar(lane, colorHex, lastCarZ);
+            }
+        }
+        
+        function spawnPedestrian(playerZ) {
+            const spawnPointZ = playerZ - PEDESTRIAN_SPAWN_OFFSET;
+            const PEDESTRIAN_SPAWN_DISTANCE = 15; // Atstatums starp gājēju ģenerēšanas punktiem
+            
+            if (spawnPointZ < lastPedestrianZ - PEDESTRIAN_SPAWN_DISTANCE) {
+                lastPedestrianZ = spawnPointZ;
+                createPedestrian(lastPedestrianZ);
+            }
+        }
+
+        function checkCollisions() {
+            // Sadursmes pārbaude starp spēlētāju un satiksmes auto
+            playerCollider.setFromObject(playerMesh);
+
+            for (let i = cars.length - 1; i >= 0; i--) {
+                const car = cars[i];
+                const carCollider = new THREE.Box3().setFromObject(car);
+
+                if (playerCollider.intersectsBox(carCollider)) {
+                    // Sadursme!
+                    const carColorHex = car.children[0].material.color.getHexString(); 
+                    const carColor = `#${carColorHex}`; 
+
+                    if (mode === 'pedestrian') {
+                         gameOver(`Jūs notrieca auto! Sadursme ar ${carColor} auto.`);
+                    } else {
+                        gameOver(`Sadursme! Jūs ietriecāties ${carColor} auto.`);
+                    }
+                    return true;
+                }
+            }
+            
+            // Sadursmes ar citiem gājējiem (Ja esam gājējs)
+            // Šeit mēs neizraisām Game Over, bet varētu pievienot punktus vai citu efektu
+            if (mode === 'pedestrian') {
+                 for (let i = pedestrians.length - 1; i >= 0; i--) {
+                    const pedestrian = pedestrians[i];
+                    const pedCollider = new THREE.Box3().setFromObject(pedestrian);
+
+                    if (playerCollider.intersectsBox(pedCollider)) {
+                         // Gājējs saduras ar citu gājēju (neizraisa spēles beigas)
+                         // Varam atgrūst vai vienkārši ignorēt. 
+                    }
+                }
+            }
+            
+            return false;
+        }
+
+        function updateGame(deltaTime) {
+            if (!isRunning) return;
+
+            const playerSpeed = mode === 'car' ? PLAYER_SPEED_CAR : PLAYER_SPEED_PEDESTRIAN;
+            
+            // === Spēlētāja Kustība ===
+            let dx = 0; // X ass (pa kreisi/pa labi)
+            let dz = 0; // Z ass (uz priekšu/atpakaļ)
+
+            // W - uz priekšu 
+            if (keys['w']) dz -= playerSpeed * deltaTime; 
+            // S - atpakaļ 
+            if (keys['s']) dz += playerSpeed * deltaTime; 
+            // A - pa kreisi 
+            if (keys['a']) dx -= playerSpeed * deltaTime; 
+            // D - pa labi 
+            if (keys['d']) dx += playerSpeed * deltaTime; 
+
+            playerMesh.position.x += dx;
+            playerMesh.position.z += dz;
+
+            // Vizuālie efekti
+            if (mode === 'car') {
+                // Riteņu rotācija
+                // children [3] līdz [6] ir riteņi (atkarīgs no modeļa)
+                playerMesh.children.forEach(child => {
+                    if (child.geometry instanceof THREE.CylinderGeometry) {
+                        const rotationAmount = (-dz / (WHEEL_RADIUS * 2 * Math.PI)) * (2 * Math.PI); 
+                        child.rotation.y += rotationAmount;
+                    }
+                });
+
+                // Auto sasvēršana pagriezienos
+                const targetRotationY = dx * -0.05; 
+                playerMesh.rotation.y += (targetRotationY - playerMesh.rotation.y) * 0.1;
+
+            } else {
+                 // Gājējs - vienmērīgi atgriež taisni
+                playerMesh.rotation.y += (0 - playerMesh.rotation.y) * 0.1;
+            }
+
+
+            // === Ierobežojumi ===
+            
+            if (mode === 'pedestrian') {
+                const boundaryX = ROAD_WIDTH / 2 + GRASS_WIDTH;
+                // Gājējs var iet tikai uz zāles un ielas. Neļaujam iet pāri visai zālei.
+                playerMesh.position.x = Math.min(Math.max(playerMesh.position.x, -boundaryX), boundaryX);
+            } 
+            else if (mode === 'car') {
+                const roadBoundary = ROAD_WIDTH / 2 - (CAR_WIDTH * 1.5) / 2; 
+                playerMesh.position.x = Math.min(Math.max(playerMesh.position.x, -roadBoundary), roadBoundary);
+            }
+            
+            // Punktu skaitīšana (par katru metri, ko nobrauc uz priekšu)
+            if (dz < 0) {
+                 score += Math.abs(dz) * 10;
+            }
+            scoreDisplay.textContent = `Punkti: ${Math.floor(score)}`;
+            
+            // === Satiksmes Auto Atjaunināšana ===
+            for (let i = cars.length - 1; i >= 0; i--) {
+                const car = cars[i];
+                
+                const carDz = car.userData.speed * car.userData.direction * deltaTime;
+                car.position.z += carDz; 
+                
+                // Rotējam arī satiksmes auto riteņus
+                car.children.forEach(child => {
+                    if (child.geometry instanceof THREE.CylinderGeometry) {
+                        const rotationAmount = (-carDz / (WHEEL_RADIUS * 2 * Math.PI)) * (2 * Math.PI) * car.userData.direction;
+                        child.rotation.y += rotationAmount;
+                    }
+                });
+
+
+                // Ja auto ir pazudis pārāk tālu aiz spēlētāja (pozitīvā Z pusē)
+                if (car.position.z > playerMesh.position.z + CAR_SPAWN_OFFSET) {
+                    scene.remove(car);
+                    cars.splice(i, 1);
+                }
+                // Ja auto pazudis pārāk tālu uz priekšu un brauc prom (negatīvā Z pusē)
+                 if (car.position.z < playerMesh.position.z - CAR_SPAWN_OFFSET && car.userData.direction === -1) {
+                    scene.remove(car);
+                    cars.splice(i, 1);
+                }
+            }
+            
+            // === NPC Gājēju Atjaunināšana ===
+             for (let i = pedestrians.length - 1; i >= 0; i--) {
+                const pedestrian = pedestrians[i];
+                
+                // Gājēji kustas uz priekšu (negatīvs Z)
+                pedestrian.position.z -= pedestrian.userData.speed * deltaTime; 
+                
+                // Ja gājējs ir pazudis pārāk tālu aiz spēlētāja (pozitīvā Z pusē)
+                if (pedestrian.position.z > playerMesh.position.z + PEDESTRIAN_SPAWN_OFFSET) {
+                    scene.remove(pedestrian);
+                    pedestrians.splice(i, 1);
+                }
+            }
+            
+            // === Sadursmes un Kameras Atjaunināšana ===
+            spawnCar(playerMesh.position.z);
+            spawnPedestrian(playerMesh.position.z); // Ģenerē jaunus gājējus
+            if (checkCollisions()) return;
+            updateCameraPosition();
+        }
+
+        // Galvenais spēles cikls
+        function gameLoop(timestamp) {
+            window.animationFrameId = requestAnimationFrame(gameLoop);
+            const delta = clock.getDelta(); 
+
+            if (isRunning) {
+                updateGame(delta); 
+                renderer.render(scene, camera);
+            }
+        }
+        
+        function gameOver(message) {
+            isRunning = false;
+            
+            messageTitle.textContent = "Spēle Beigusies!";
+            messageText.innerHTML = `${message}<br>Jūsu kopējie punkti: <span class="text-3xl font-extrabold text-blue-600">${Math.floor(score)}</span>`;
+            messageBox.style.display = 'flex';
+        }
+        
+        // === Notikumu Apstrādātāji (Tastatūrai un Skārienam) ===
+
+        function handleKeyDown(event) {
+            const key = event.key.toLowerCase();
+            keys[key] = true;
+            if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(key)) {
+                event.preventDefault(); // Novērš lapas ritināšanu ar bultiņām
+            }
+        }
+
+        function handleKeyUp(event) {
+            keys[event.key.toLowerCase()] = false;
+        }
+
+        // Pielāgo renderētāja izmēru, kad mainās loga izmērs
+        function handleResize() {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            if (camera) {
+                camera.aspect = width / height;
+                camera.updateProjectionMatrix();
+            }
+            if (renderer) {
+                renderer.setSize(width, height);
+            }
+        }
+
+        // Mobilās pogas klikšķu un skārienu apstrāde
+        document.getElementById('direction-pad').querySelectorAll('.mobile-btn').forEach(button => {
+            // Izmanto data-key atribūtu (w, a, s, d)
+            const key = button.getAttribute('data-key');
+            
+            // Skāriena Sākums un Peles Nospiešana
+            const startEvent = (e) => { 
+                e.preventDefault(); 
+                keys[key] = true; 
+            };
+            
+            // Skāriena Beigas un Peles Atlaišana
+            const endEvent = (e) => { 
+                e.preventDefault(); 
+                keys[key] = false; 
+            };
+            
+            // Skārienjutīgie notikumi
+            button.addEventListener('touchstart', startEvent);
+            button.addEventListener('touchend', endEvent);
+            
+            // Peles notikumi (darbojas arī uz PC/laptop)
+            button.addEventListener('mousedown', startEvent); 
+            button.addEventListener('mouseup', endEvent);
+            button.addEventListener('mouseout', (e) => { 
+                // Atiestata, ja pele iziet ārā, kamēr nav nospiesta (drošības labad)
+                if (e.buttons === 0) keys[key] = false;
+            });
+        });
+
+
+        toggleModeBtn.addEventListener('click', toggleMode);
+        resetBtn.addEventListener('click', initGame);
+        closeMessageBtn.addEventListener('click', initGame);
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        window.addEventListener('resize', handleResize);
+
+        // Sākt spēli, kad logs ir ielādēts
+        window.onload = function () {
+            initGame();
+        };
+
+    </script>
+</body>
+</html>
